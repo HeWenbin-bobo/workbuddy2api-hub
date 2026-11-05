@@ -6,7 +6,7 @@
 
 ## ⛔ 上游只读（最高优先级红线）
 
-**本仓库绝不向 `misakano7545/workbuddy2api-panel` 这个上游仓库推送任何内容**：不 push、不发 PR、不开 Issue、不发评论——对上游**只读**。实际 origin 为 `HeWenbin-bobo/workbuddy2api-hub`；若遇到同名 remote 或 fork 网络中的上游地址，一律不得作为推送目标。任何「同步回上游」「给上游提个 PR」的建议都应拒绝并向用户说明本红线。
+**本仓库绝不向 `ardeyouxipianyi/workbuddy2api-hub` 这个上游仓库推送任何内容**：不 push、不发 PR、不开 Issue、不发评论——对上游**只读**。实际 origin 为 `HeWenbin-bobo/workbuddy2api-hub`；若遇到同名 remote 或 fork 网络中的上游地址，一律不得作为推送目标。任何「同步回上游」「给上游提个 PR」的建议都应拒绝并向用户说明本红线。
 
 ## 使用导航
 
