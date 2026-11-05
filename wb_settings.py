@@ -2381,6 +2381,33 @@ def set_log_db_max_bytes(accounts_dir, value):
     return stored
 
 
+def scheduler_enabled(accounts_dir):
+    """Whether the background scheduler runs at all (hard master switch).
+
+    On unless the operator turns it off. Writing ``false`` stops every
+    scheduled job (check-in, cat travel, keep-alive, night-owl, web activity,
+    CodeArts keep-alive, quota scans) across restarts. The manual trigger
+    endpoint and per-account manual buttons still work, because those are
+    explicit operator actions.
+
+    This is the soft counterpart to the hard ``WB_SCHEDULER`` env kill-switch:
+    env off wins over this setting; this setting wins over the in-memory
+    toggle default.
+    """
+    value = load(accounts_dir).get("scheduler_enabled")
+    return True if value is None else value is True
+
+
+def set_scheduler_enabled(accounts_dir, enabled):
+    """Persist the scheduler master switch. Returns the stored boolean."""
+    enabled = bool(enabled)
+    with _lock:
+        data = load(accounts_dir)
+        data["scheduler_enabled"] = enabled
+        save(accounts_dir, data)
+    return enabled
+
+
 def daily_activity_enabled(accounts_dir):
     """Whether the scheduler runs the intl daily activity at all (master switch).
 

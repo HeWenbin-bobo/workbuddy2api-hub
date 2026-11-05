@@ -6708,6 +6708,26 @@ html[data-ui="next"] #nextContent .console-shell > main {padding:24px;max-width:
       <section data-cat="tasks">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
           <div>
+            <h2 style="margin:0">后台定时调度器 <em id="setSchedulerState"></em></h2>
+            <div style="font-size:12px;color:var(--dim);margin-top:4px">
+              定时签到 / 猫猫 / 保活 / 夜猫 / 网页活跃 / CodeArts 保活 / 额度查询的总开关。
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;min-height:40px" title="关闭后调度器不再执行任何定时任务（签到/猫猫/保活/夜猫/网页活跃/CodeArts保活/额度查询全部停止）；手动触发与账号上的手动操作不受影响。重启后保持关闭。">
+              <input id="setSchedulerEnabled" type="checkbox" checked style="width:16px;height:16px">
+              启用调度器
+              <em id="setSchedulerEnabledState" style="font-style:normal;font-size:12px;color:var(--dim)"></em>
+            </label>
+            <button class="primary" onclick="saveSchedulerEnabled(this)">保存</button>
+            <span id="setSchedulerSaveState" style="font-size:12px;color:var(--dim)"></span>
+          </div>
+        </div>
+      </section>
+
+      <section data-cat="tasks">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+          <div>
             <h2 style="margin:0">国际版每日活跃打卡 <em id="setDailyChatWebState"></em></h2>
             <div style="font-size:12px;color:var(--dim);margin-top:4px">
               一次打卡 = 一个预算 + 一个候选模型序列：按顺序换模型重试，预算用完必给结论。
@@ -14841,6 +14861,17 @@ async function loadSettings(showToast){
         privateDataState.style.color = privateData === 'auto'
           ? 'var(--dim)' : 'var(--accent2)';
       }
+      const schedulerEnabled = data.scheduler_enabled !== false;
+      const schedulerEnabledInput = document.getElementById('setSchedulerEnabled');
+      if(schedulerEnabledInput){
+        schedulerEnabledInput.checked = schedulerEnabled;
+        schedulerEnabledInput.dataset.loaded = '1';
+      }
+      const schedulerEnabledState = document.getElementById('setSchedulerEnabledState');
+      if(schedulerEnabledState){
+        schedulerEnabledState.textContent = schedulerEnabled ? '(运行中)' : '(已暂停)';
+        schedulerEnabledState.style.color = schedulerEnabled ? 'var(--accent2)' : 'var(--warn)';
+      }
       const dailyActivity = data.daily_activity !== false;
       const dailyActivityInput = document.getElementById('setDailyActivity');
       if(dailyActivityInput){
@@ -16019,6 +16050,27 @@ async function resetDailyChatModels(){
 }
 function resetDailyChatTimes(){
   renderDailyChatTimes([]);
+}
+
+async function saveSchedulerEnabled(btn){
+  const el = document.getElementById('setSchedulerEnabled');
+  const state = document.getElementById('setSchedulerSaveState');
+  const payload = {};
+  if(el && el.dataset && el.dataset.loaded === '1'){
+    payload.scheduler_enabled = !!el.checked;
+  }
+  if(btn) btn.disabled = true;
+  try {
+    await postJSON('/settings/save', payload);
+    if(state){ state.textContent = '已保存'; state.style.color = 'var(--accent2)'; }
+    toast('调度器开关已保存', 'ok');
+    loadSettings();
+  } catch(e) {
+    if(state){ state.textContent = ''; }
+    toast('保存失败: ' + e.message, 'bad');
+  } finally {
+    if(btn) btn.disabled = false;
+  }
 }
 
 async function saveDailyChatModule(btn){

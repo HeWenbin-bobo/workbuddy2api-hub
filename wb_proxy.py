@@ -11067,6 +11067,7 @@ def runtime_settings_view():
         "identity": wb_settings.identity_config(ACCOUNTS_DIR),
         "identity_version_defaults": wb_identity.default_versions(),
         "codearts": wb_codearts.masked_config(ACCOUNTS_DIR),
+        "scheduler_enabled": wb_settings.scheduler_enabled(ACCOUNTS_DIR),
         "daily_activity": wb_settings.daily_activity_enabled(ACCOUNTS_DIR),
         "daily_chat_web": wb_settings.daily_chat_web(ACCOUNTS_DIR),
         "daily_chat_web_timeout":
@@ -22601,6 +22602,18 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 return self._error(400, str(exc), "invalid_request_error")
             reply["auto_switch_products"] = clean
+        if "scheduler_enabled" in payload:
+            # Strictly a JSON boolean, like the other switches: a string "false"
+            # must not be read as "on" (or the other way round).
+            raw = payload.get("scheduler_enabled")
+            if not isinstance(raw, bool):
+                return self._error(400, "scheduler_enabled must be true or false",
+                                   "invalid_request_error")
+            wb_settings.set_scheduler_enabled(ACCOUNTS_DIR, raw)
+            if SCHEDULER:
+                SCHEDULER.enabled = raw
+                SCHEDULER._disabled_reason = "" if raw else "panel toggle"
+            reply["scheduler_enabled"] = raw
         if "daily_activity" in payload:
             # Strictly a JSON boolean, like the other switches: a string "false"
             # must not be read as "on" (or the other way round).
@@ -23999,7 +24012,14 @@ class Handler(BaseHTTPRequestHandler):
     def _route_scheduler_toggle(self, payload):
         if SCHEDULER:
             SCHEDULER.enabled = not SCHEDULER.enabled
-            SCHEDULER.log(f"用户切换调度器状态为: {'启用' if SCHEDULER.enabled else '暂停'}")
+            if SCHEDULER.enabled:
+                SCHEDULER._disabled_reason = ""
+                wb_settings.set_scheduler_enabled(ACCOUNTS_DIR, True)
+                SCHEDULER.log("用户切换调度器状态为: 启用")
+            else:
+                SCHEDULER._disabled_reason = "panel toggle"
+                wb_settings.set_scheduler_enabled(ACCOUNTS_DIR, False)
+                SCHEDULER.log("用户切换调度器状态为: 暂停")
             return self._json_panel(200, SCHEDULER.status())
         return self._json(200, {"ok": False, "msg": "调度器未初始化"})
 
@@ -26205,6 +26225,19 @@ def _bootstrap_runtime(args):
     global SCHEDULER
     from wb_scheduler import Scheduler
     SCHEDULER = Scheduler(POOL)
+    # 三层开关：env 硬开关 > settings 软开关 > 内存 toggle 默认。
+    # env 只识别「关」不识别「开」：off/0/false/disabled/no/n 一律视为关闭。
+    _sched_env = str(os.environ.get("WB_SCHEDULER") or "").strip().lower()
+    _env_off = _sched_env in ("off", "0", "false", "disabled", "no", "n")
+    _settings_off = not wb_settings.scheduler_enabled(ACCOUNTS_DIR)
+    if _env_off:
+        SCHEDULER.enabled = False
+        SCHEDULER._disabled_reason = f"env WB_SCHEDULER={_sched_env}"
+        log(f"scheduler  : disabled by WB_SCHEDULER env ({_sched_env})")
+    elif _settings_off:
+        SCHEDULER.enabled = False
+        SCHEDULER._disabled_reason = "settings.scheduler_enabled=false"
+        log("scheduler  : disabled by settings.scheduler_enabled")
     SCHEDULER.start()
     # 目录兜底：每天至少从上游 API 取一次（活跃使用的部署里 300s 缓存早就
     # 刷得更新，这个线程只兜长时间没人访问 / 一直吃缓存文件或内置快照）。

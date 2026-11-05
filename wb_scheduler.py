@@ -122,6 +122,10 @@ class Scheduler:
         self._daily_activity_notice = False
         self.all_hours = sorted(list(set(self.checkin_hours + self.travel_hours + self.keepalive_hours + self.cat_hours)))
         self.enabled = True
+        # 为什么被禁用（启动时 env / settings / 运行时 toggle）。空字符串 = 未禁用。
+        self._disabled_reason = ""
+        # 暂停状态日志节流：_run_loop 每 10 分钟最多打一条「已暂停」。
+        self._last_disabled_log = 0.0
         self._stop_event = threading.Event()
         self._thread = None
         self._probe_thread = None
@@ -167,11 +171,16 @@ class Scheduler:
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
-        self.log("后台定时调度器已启动")
+        if self.enabled:
+            self.log("后台定时调度器已启动")
+        else:
+            self.log(f"后台定时调度器未启动（{self._disabled_reason or '未知原因'}）")
 
-    def stop(self):
+    def stop(self, reason=""):
         self._stop_event.set()
-        self.log("后台定时调度器已暂停")
+        if reason:
+            self._disabled_reason = reason
+        self.log(f"后台定时调度器已暂停（{self._disabled_reason or '未知原因'}）")
 
     def _run_loop(self):
         # 启动后先休眠 10 秒等待主服务就绪，然后执行初次检查
@@ -217,6 +226,11 @@ class Scheduler:
                     except Exception as exc:
                         self.log(f"排程执行异常: {exc}")
                     time.sleep(65) # 避开当前这一分钟重复触发
+            else:
+                # 暂停状态日志节流：每 10 分钟最多一条，避免刷屏。
+                if time.time() - self._last_disabled_log >= 600:
+                    self._last_disabled_log = time.time()
+                    self.log(f"调度器已暂停（{self._disabled_reason or '未知原因'}），等待恢复...")
             # 模型额度窗口探针：不受 enabled 影响。窗口是按首次请求起算的，
             # 到点没人请求就不会开始新一轮，这件事跟签到/保活开关无关。
             self._run_window_probes()
@@ -902,6 +916,7 @@ class Scheduler:
                      "+ 模型额度窗口探针" % keepalive)
         return {
             "enabled": self.enabled,
+            "disabled_reason": self._disabled_reason,
             "mode": mode_cn,
             "mode_cn": mode_cn,
             "mode_intl": mode_intl,
