@@ -185,10 +185,16 @@ class Scheduler:
     def _run_loop(self):
         # 启动后先休眠 10 秒等待主服务就绪，然后执行初次检查
         time.sleep(10)
-        try:
-            self._execute_cycle("启动初次初始化巡检")
-        except Exception as exc:
-            self.log(f"初次巡检异常: {exc}")
+        # 初次巡检同样受 enabled 门控：关掉调度器后重启进程，这一轮仍会真实
+        # 打卡 / 跑国际版每日活跃，等于「暂停」在每次重启时被绕过一次。
+        # 跳过时不吃 _catchup_pending，开关重新打开后仍会补跑。
+        if self.enabled:
+            try:
+                self._execute_cycle("启动初次初始化巡检")
+            except Exception as exc:
+                self.log(f"初次巡检异常: {exc}")
+        else:
+            self.log(f"跳过启动初次巡检（{self._disabled_reason or '未知原因'}）")
         # 进程停过一段时间的话，重置时刻可能已经过去：启动就补一次窗口探针，
         # 把新一轮窗口的起点尽量抢回来。
         self._run_window_probes()
