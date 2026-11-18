@@ -185,10 +185,16 @@ class Scheduler:
     def _run_loop(self):
         # 启动后先休眠 10 秒等待主服务就绪，然后执行初次检查
         time.sleep(10)
-        try:
-            self._execute_cycle("启动初次初始化巡检")
-        except Exception as exc:
-            self.log(f"初次巡检异常: {exc}")
+        # 初次巡检同样受 enabled 门控：关掉调度器后重启进程，这一轮仍会真实
+        # 打卡 / 跑国际版每日活跃，等于「暂停」在每次重启时被绕过一次。
+        # 跳过时不吃 _catchup_pending，开关重新打开后仍会补跑。
+        if self.enabled:
+            try:
+                self._execute_cycle("启动初次初始化巡检")
+            except Exception as exc:
+                self.log(f"初次巡检异常: {exc}")
+        else:
+            self.log(f"跳过启动初次巡检（{self._disabled_reason or '未知原因'}）")
         # 进程停过一段时间的话，重置时刻可能已经过去：启动就补一次窗口探针，
         # 把新一轮窗口的起点尽量抢回来。
         self._run_window_probes()
@@ -433,6 +439,7 @@ class Scheduler:
             self.log("账号池不可用，跳过本次巡检")
             return
         accounts = list(self.pool.accounts)
+
         if not accounts and not (
                 self._codearts_checkin_pending(run_checkin)
                 or self._codearts_keepalive_pending(run_keepalive)):
@@ -460,12 +467,11 @@ class Scheduler:
                 # 账号间随机错峰防并发风控（2~5秒浮动延时，issue #394）
                 time.sleep(random.uniform(2.0, 5.0))
             uid8 = acc.uid[:8] if acc.uid else "?"
-            # 上游账号级风控限制（403 / code 11140）中的账号一律跳过：无人值守
+            # 上游账号级封禁（403 / code 11140）中的账号一律跳过：无人值守
             # 的巡检/打卡再去「试探」一次，只会让同一台设备上的其他账号连坐。
-            # 限制期限是持久化的（wb_accounts.note_restricted），重启后仍然有效。
-            if getattr(acc, "restricted_until", 0.0) > time.time():
-                self.log(f"跳过受限账号 [{uid8}]：上游风控限制剩余 "
-                         f"{int(acc.restricted_until - time.time())}s")
+            # 封禁是持久禁用，只有操作者手动启用才解除。
+            if getattr(acc, "account_banned", False):
+                self.log(f"跳过封禁账号 [{uid8}]：需在面板手动启用")
                 continue
             # 区域级连坐暂停期间（同一窗口内多个账号被限制）整轮都不碰上游。
             try:

@@ -71,6 +71,56 @@ class SchedulerDisabledReasonTests(unittest.TestCase):
         self.assertEqual(st["disabled_reason"], "settings.scheduler_enabled=false")
 
 
+class SchedulerStartupCycleTests(unittest.TestCase):
+    """The startup cycle must obey the same switch as the hourly slots.
+
+    Before this was pinned, ``_run_loop`` ran ``_execute_cycle("启动初次初始化巡检")``
+    unconditionally: turning the scheduler off still produced one real
+    check-in / daily-activity round on every gateway restart, so the pause was
+    bypassed once per restart.
+    """
+
+    def _scheduler(self):
+        pool = mock.Mock()
+        pool.dir = ""
+        s = wb_scheduler.Scheduler(pool)
+        # Stop the run loop from sleeping 10s and then walking into the real
+        # cycle: we only want to observe whether _execute_cycle is reached.
+        s._stop_event.set()
+        return s
+
+    def _run_startup(self, s):
+        calls = []
+        s._execute_cycle = lambda *a, **k: calls.append(a[0] if a else "")
+        real_sleep = wb_scheduler.time.sleep
+        wb_scheduler.time.sleep = lambda *_: None
+        try:
+            s._run_loop()
+        finally:
+            wb_scheduler.time.sleep = real_sleep
+        return calls
+
+    def test_enabled_runs_the_startup_cycle(self):
+        s = self._scheduler()
+        s.enabled = True
+        self.assertEqual(self._run_startup(s), ["启动初次初始化巡检"])
+
+    def test_disabled_skips_the_startup_cycle(self):
+        s = self._scheduler()
+        s.enabled = False
+        s._disabled_reason = "settings.scheduler_enabled=false"
+        self.assertEqual(self._run_startup(s), [])
+
+    def test_disabled_keeps_the_catchup_pending(self):
+        # The startup catch-up is a one-shot flag: skipping must not consume
+        # it, otherwise re-enabling the switch loses that day's activity.
+        s = self._scheduler()
+        s.enabled = False
+        self.assertTrue(s._catchup_pending)
+        self._run_startup(s)
+        self.assertTrue(s._catchup_pending)
+
+
 class SchedulerLogThrottleTests(unittest.TestCase):
     def test_throttle_interval_constant(self):
         # The run-loop throttle is 600 seconds (10 minutes).
