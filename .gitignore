@@ -74,3 +74,8 @@ desktop.ini
 
 # Local Docker Compose override
 docker-compose.override.yml
+
+# AI 编码工具的运行态目录（编排状态、会话记忆、进度快照）。
+# 它们不属于项目源码，也不该出现在 git status 里；`.remember/` 自带
+# 内部 `*` 规则所以本来就不显示，这里补上 `.omc/` 让两者口径一致。
+.omc/

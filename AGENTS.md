@@ -17,28 +17,36 @@
 | 历史版本变更与发布口径 | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) |
 | 媒体（生图/生视频）实现与测试计划 | `docs/MEDIA-IMPL.md` / `docs/MEDIA-PLAN.md` / `docs/MEDIA-TEST-PLAN.md` |
 | 新增 AI 客户端一键配置 | [`docs/CONTRIBUTING-智能体配置.md`](docs/CONTRIBUTING-智能体配置.md)（注册表 + 文本编辑器规范 + 测试清单） |
+| 排障：上游 400 / code 11-128 | [`docs/TROUBLESHOOTING-11-128.md`](docs/TROUBLESHOOTING-11-128.md)（渠道校验，不是封号） |
+| 订阅桥 / mihomo 代理槽 | [`docs/SUBBRIDGE.md`](docs/SUBBRIDGE.md) |
+| 出站请求头的逐路径顺序与证据 | [`docs/OUTBOUND-HEADER-AUDIT.md`](docs/OUTBOUND-HEADER-AUDIT.md) |
 | 了解模块职责 | 下方「项目结构速查」 |
 | 写一次性脚本、杀进程、跑长任务 | 下方「进程与窗口操作安全」+「文档 / 脚本 / 测试治理」 |
 | 排查历史缺陷 | 下方「踩过的坑」按编号/函数/错误文本检索，编号不因整理重排 |
 
 ## 项目结构速查
 
-- **单文件网关核心**：`wb_proxy.py`（约 2.5 万行，含 `server_version = "wb-proxy/<ver>"`，HTTP 服务、协议转换、看板静态页全部内嵌）。改它之前先定位到目标类/函数再小步编辑，不全文通读。
+- **单文件网关核心**：`wb_proxy.py`（约 2.9 万行，含 `server_version = "wb-proxy/<ver>"`，HTTP 服务、协议转换、看板静态页全部内嵌）。改它之前先定位到目标类/函数再小步编辑，不全文通读。
 - **功能模块**（`wb_*.py`，按职能分组）：
   - 账号与身份：`wb_accounts.py`、`wb_identity.py`、`wb_fingerprint.py`（设备指纹）、`wb_ipintel.py`
   - 调度与出口：`wb_scheduler.py`、`wb_egress.py`、`wb_upstream_pool.py`、`wb_tiers.py`、`wb_quota_scan.py`、`wb_probes.py`
+  - 号池分区：`wb_pool_scope.py`（分区判定）、`wb_pool_text.py`（文本派发）、`wb_pool_media.py`（媒体派发）——**默认关闭**，见下方「号池分区」
   - 协议与提示词：`wb_prompt.py`、`wb_webprompts.py`、`wb_webagent.py`、`wb_webtools.py`
   - CodeArts 出口：`wb_codearts.py`、`wb_codearts_crypto.py`
   - 媒体：`wb_media.py`、`wb_media_client.py`、`wb_media_tasks.py`
   - 用量/定价/目录：`wb_usage_io.py`、`wb_pricing.py`、`pricing/`、`wb_catalog.py`、`catalog/`、`wb_modelsdev.py`
+  - 时间：`wb_time.py`（统计时区，默认关；关闭时是 `localtime`/`strftime` 的直通）
+  - 订阅桥：`wb_subbridge.py`（Clash/V2Ray 订阅 → mihomo listener → 代理槽）
   - 任务与福利：`wb_tasks.py`、`wb_activity.py`
   - 客户端一键配置：`wb_agents.py`（注册表 `CLIENTS` + 文本级 Upserter + 备份回滚，规范见 `docs/CONTRIBUTING-智能体配置.md`）
   - 更新：`wb_updates.py`、`wb_update_apply.py`、`wb_update_external.py`、`wb_update_portable.py`、`wb_update_request.py`
   - 其余：`wb_settings.py`、`wb_logstore.py`、`wb_atrest.py`、`wb_window_probe.py`
+- **TLS 出站桥**：`tools/wb-tls-bridge/`（Go/uTLS，模拟官方 ClientHello）。**只从源码构建，产物不入库**；镜像 / 便携包 / OpenWrt 由 CI 交叉编译。默认模式 `auto`：桥可用则用，缺失或失败自动回落 Python/OpenSSL。
 - **看板**：`dashboard.html`（单文件前端，改文案须同步词典——繁体有测试钉住，英文词典键与 HTML 文本逐字一致）。
-- **测试**：`tests/run_all.py`（全量入口，支持名字过滤如 `python tests/run_all.py realm`）；单套件 `tests/_test_xxx.py` 直接跑；JS 套件需 PATH 上有 `node`；`tests/_mobile_check.py` 为独立 Playwright 布局检查（手动跑）。
+- **测试**：`tests/run_all.py`（全量入口，支持名字过滤如 `python tests/run_all.py realm`）；单套件 `tests/_test_xxx.py` 直接跑；JS 套件需 PATH 上有 `node`；`tests/_mobile_check.py` 与 `tests/_visual_recent.py` 为独立 Playwright 检查器（手动跑，不在套件集里）。
 - **脚本与运维**：`scripts/`（含 `check_clean_checkout.py`）、`ops/`、`tools/`、`release/`（发布工具与门禁）、`wrt/`（OpenWrt 打包，脚本须保 755）。
-- **运行产物**：`accounts/`（账号凭据、集成状态账本、配置备份）、`usage/`（用量流水）——**绝不允许入库或夹带进提交**。
+- **运行产物**：`accounts/`（账号凭据、集成状态账本、配置备份）、`usage/`（用量流水）、`catalog/`（最近一次 `/v3/config` 落盘副本，媒体层冷启动回退）、`media/`（生图生视频产物）——**绝不允许入库或夹带进提交**。
+- **工具运行态目录**（不属于项目源码，不要提交）：`.omc/`（OMC 编排状态与计划）、`.remember/`（会话记忆日志）。`__pycache__/`、`.idea/` 已被 `.gitignore` 覆盖。
 
 ## 核心子系统架构要点（改代码前必读）
 
@@ -46,7 +54,7 @@
 
 ### 单文件网关核心（`wb_proxy.py`）
 
-- **版本号唯一来源**：`server_version = "wb-proxy/<ver>"`（约 19485 行附近），改版本号只改这一处；`get_version()` 从它派生，不要反向引用。
+- **版本号唯一来源**：`server_version = "wb-proxy/<ver>"`（约 21900 行附近；`grep -n 'server_version = "wb-proxy/'` 定位，不要按行号硬编码），改版本号只改这一处；`get_version()` 从它派生，不要反向引用。三处一致：源码 / 打包脚本 / tag。
 - **看板静态页内嵌**：dashboard.html 以字符串形式内嵌在 `wb_proxy.py` 中，改看板结构要同步改 Python 侧的 HTML 模板；两者漂移会导致「页面能开但功能错位」。
 - **路由与 Handler 分离**：HTTP 路由表在 `wb_proxy.py` 顶部，业务 Handler 在对应 `wb_*.py` 模块；新增端点先注册路由再挂 Handler，不要在一个文件里写全栈。
 - **协议转换层**：OpenAI Chat Completions / Responses / Anthropic Messages 三种协议的出入参转换都在 `wb_proxy.py` 与 `wb_prompt.py` 交界处，改协议字段时三种格式都要跑通（冒烟门禁覆盖）。
@@ -56,6 +64,8 @@
 - **设备指纹隔离**：每个账号的 `wb_fingerprint.py` 派生指纹是风控识别的基础，改指纹派生逻辑必须全量回归（上游会按指纹聚类封号）。
 - **出口绑定**：账号 → 出口代理槽（`wb_egress.py`）→ 上游（`wb_upstream_pool.py`）是三级绑定，改其中一级要核对另外两级的降级路径（无代理时回落直连、无账号时返回 503）。
 - **配额轮转**：`wb_scheduler.py` 的配额模型是「每账号独立额度 + 全局故障转移」，改轮转策略先在 `wb_quota_scan.py` 的探测口径上对齐，不要假设所有账号同余量。
+- **调度器三层可停开关**（v2.0 起）：优先级 `WB_SCHEDULER` env 硬关 > `settings.json` 的 `scheduler_enabled` > 面板 toggle。三者都只影响**自动排程**：整点任务、网页活跃时段、CodeArts 保活、**启动初次巡检**。`/scheduler/trigger` 手动触发与账号级手动打卡不受影响。跳过时 `_catchup_pending` 不消费，重新打开后仍会补跑。窗口探针（`_run_window_probes`）与额度主动查询（`_run_quota_scans`）**刻意不受 `enabled` 影响**——它们是独立信息源，不是签到类任务。
+- **`11140` 是持久封禁，不是冷却**（v2.1.0 起）：HTTP 403 / code 11140 会持久化 `accountBanned`，停用 API 派发与自动任务，重启 / 刷 token / 重新导入 / 探测成功都不恢复，**只有面板手动启用**才解除。旧 `restrictedUntil` 在账号加载时迁移成该状态。改风控路径时不要把两者混为一谈。
 
 ### 智能体一键配置（`wb_agents.py`）
 
@@ -77,6 +87,32 @@
 
 - **改之前必读**：`docs/MEDIA-IMPL.md`（实现）、`docs/MEDIA-PLAN.md`（计划）、`docs/MEDIA-TEST-PLAN.md`（测试计划）——三份文档覆盖生图/生视频的完整链路与验收口径。
 - **异步任务**：生视频是异步任务（`wb_media_tasks.py` 本地并发排队与空闲调度），改任务生命周期要核对 `usage/` 流水与 `accounts/` 状态的落盘点。
+
+### 号池分区（`wb_pool_scope.py` / `wb_pool_text.py` / `wb_pool_media.py`）
+
+- **默认关闭**：`pool_separation_enabled` 为假（默认）时，三个模块共享同一个完整账号池，行为与历史单池一致。只有显式打开（设置页开关或 `WB_POOL_SEPARATION=1`）才按账号的 `poolScope`（`text` / `media`）限制派发。
+- **共用一份 `AccountPool`**：凭据刷新、出口代理、日额度护栏都只有一份；改其中任一模块时不要在本地副本上改状态。
+- **进程级硬隔离**：双实例部署可用 `WB_POOL_SCOPE=text|media` 强制整进程只用一个池，优先级高于账号字段。
+- **任务不受分区影响**：签到 / 成长 / 猫猫 / 国际每日活跃只由账号的 `tasksEnabled` 决定，`poolScope=media` 的账号照样出现在任务下拉里。
+
+### 统计时区（`wb_time.py`）
+
+- **默认关闭且必须是直通**：开关关闭时每个辅助函数等价于 `time.localtime` / `time.mktime` / `time.strftime`，旧安装的日 / 小时分桶、日志时间戳、限额重置时刻、导出文件名逐字节不变。
+- **固定 UTC+8 而不是 `TZ=Asia/Shanghai` + `tzset()`**：中国 1991 年后无夏令时，固定偏移不需要 tzdata；Windows 无 `tzset`、musl / OpenWrt 镜像常缺 zoneinfo。改这个模块前先读它的 docstring。
+- **落盘永远存 epoch**：切换只影响展示与日历日计算，不改存储格式。
+
+### TLS 出站桥（`tools/wb-tls-bridge/`）
+
+- **默认 `auto`**：未显式设置 `WB_TLS_FINGERPRINT` 时先尝试桥；桥缺失、架构不支持、启动失败、运行中退出、自定义 CA 或不兼容代理时，当前进程后续请求安全回退 Python/OpenSSL。`node` 是强制语义，`python` 可立即关闭桥。
+- **产物不入库**：只提交 Go 源码与许可证；二进制由 CI 交叉编译，本地构建产物见 `.gitignore`。
+- **连接池隔离**：池键含实际路线与桥代次，Python 与桥连接不混池；桥退出时清退旧代次空闲连接，活跃连接不归还。
+- **不透明重放**：当前请求不会因桥失败被透明重放；上游 TCP / 代理 CONNECT / TLS 握手返回的 502 只回退尚未发送的请求。
+
+### 订阅桥（`wb_subbridge.py`）
+
+- 把 Clash / Mihomo 订阅、V2Ray URI 或单个 HTTP / SOCKS 代理转换成 mihomo per-node listener，再登记成网关代理槽。
+- `--list` 只解析并打印节点目录、不开端口。缺 PyYAML 时返回明确错误（该模块是唯一允许依赖三方库的地方，Dockerfile 为此装 `PyYAML`）。
+- 详见 [`docs/SUBBRIDGE.md`](docs/SUBBRIDGE.md)。
 
 ## Git / GitHub 协作规则（提交 / 推送 / PR 前必读）
 
@@ -155,9 +191,9 @@
 
 ## 踩过的坑（Bug 教训，勿重蹈）
 
-> 编号是历史交叉引用的稳定标识，不因整理而重排；新增教训从当前最大编号 +1 开始（当前下一条为 8）。
+> 编号是历史交叉引用的稳定标识，不因整理而重排；新增教训从当前最大编号 +1 开始（当前下一条为 11）。
 >
-> **分段索引**：1～2 合并与提交｜3～5 配置写入与权限｜6 进程与窗口操作｜7 编辑与补丁。
+> **分段索引**：1～2 合并与提交｜3～5 配置写入与权限｜6 进程与窗口操作｜7 编辑与补丁｜8～10 环境与验证。
 
 ### 1～2：合并与提交
 
@@ -181,11 +217,20 @@
 
 7. **heredoc 补丁的锚点静默失效**：Git Bash 的 heredoc 会把脚本源码里的 `\\n` 折半成真换行、`\\x00` 折成 NUL 字节写进 .py，导致精确字符串锚点 count=0 但脚本退出码仍为 0。判据：补丁脚本一律用 Write 工具落盘再执行；含反斜杠的锚点改用 r 原始字符串；补丁脚本跑完必须逐项 grep 核验关键锚点真的写进去了，不能只看退出码（AGENTS_.md 踩坑 23/28，Windows 上 Python 编辑源码的通用坑）。
 
+### 8～10：环境与验证
+
+8. **conda 的 `SSL_CERT_FILE` 会让 SSL 套件假红**：本机 conda 环境（miniforge）把 `SSL_CERT_FILE` 指向 `Library/ssl/cacert.pem`，这个变量会顶掉 Python 默认的系统根证书加载，于是 `_test_shared_ssl_context.py` / `_test_tls_fingerprint.py` / `_test_upstream_pool.py` 三个套件报 `CERTIFICATE_VERIFY_FAILED` 或断言「CA 集与全新默认上下文不一致」。判据：这三类失败先看 `echo $SSL_CERT_FILE`，非空且指向 conda 就用 `env -u SSL_CERT_FILE -u __CONDA_OPENSSL_CERT_FILE_SET python tests/run_all.py ...` 重跑，不要当成代码回归去改测试。
+
+9. **镜像源取上游时先验 merge-base**：上游仓库被删 / 转私有后，同名 fork 网络里可能有多个自称镜像的仓库，内容各不相同（有的落后一版、有的是下游增强 fork、有的历史被压平到几个提交）。判据：`git merge-base main <候选主分支>` 必须**正好等于**上次同步的已知良好快照 SHA，且该快照是候选分支的祖先；否则说明历史不连续，不能作为同步源。SHA 链连续是唯一能证明「内容没被伪造」的手段。
+
+10. **开关只包住了循环体，就会漏掉循环前那一段**：调度器的 `enabled` 门控最初只包住 `while` 主循环里的排程分支，`_run_loop` 在进入循环之前还有一次「启动初次初始化巡检」，于是每次重启都会绕过暂停跑一轮真实任务——界面上显示「已暂停」，实际却打了卡。判据：给任何长驻循环加开关时，把**循环前后的所有任务调用点**一并列出核对（`grep -n 'self.enabled'` 的数量应对得上 `_execute_cycle` 的调用点数量）；验证方式是用 mock 池跑真实 cycle，断言语义级副作用（如 `acc.checkin.call_count`）而不是只看日志。
+
 ## 用户偏好
 
 - **沟通语言**：中文交流；文档、prompt、提交主题全部用简体中文（中英双语仅限 PR 正文 / Review / Issue 回复等对外协作场景）。
 - **界面审美**：现代 / 简洁 / 高级的专业产品感，不要后台模板味；动效克制（只动 opacity / transform，统一时长与缓动，尊重 prefers-reduced-motion，手机端简化）；首页要有第一屏冲击力。新页面 / 新组件先复用现有 token 与组件，颜色不要散落在页面里。
 - **对「界面显示与实际执行不一致」零容忍**：做过的操作必须在界面上留得下证据（影响执行的 UI 选择一律落盘 / 注册表，不能只存 session_state / 内存态）。
 - **重视「先理解全流程再动手」**：网关链路边界多（账号 → 指纹 → 出口 → 上游 → 协议转换 → 看板），改任何一环前先追完整条链路的所有调用方。
-- **项目处于低频维护期**（2026-10-23 起）：改动要更保守，优先修复性、低风险变更，不主动发起大型重构。
+- **项目维护状态已恢复**（2026-11-13 起）：上游 v2.1.0 起恢复更新（README 徽章从 Low-frequency 改为 Resumed），"低频维护期"的保守约束不再是硬要求；但**仍需优先修复性、低风险变更**，大型重构要先说明收益与回滚路径。
 - **上游持续收紧非官方客户端识别**：涉及 WAF/指纹/风控规避的改动，先确认不会放大账号风险，并在 PR 说明里写清影响面。
+- **Docker 冒烟优先于裸机**：跑冒烟 / 端到端验证时优先用容器，端口映射到 `8799` 之类的隔离端口，数据目录用一次性的临时挂载（**不要挂载仓库的 `accounts/`、`usage/`**）。验证通过后删除容器与镜像。国内网络可能拉不到 Docker Hub 基础镜像，此时可用本机已有镜像改写 Dockerfile，但**不要为此修改仓库内的 Dockerfile**——用临时文件（`Dockerfile.smoke` 等），跑完删除。
